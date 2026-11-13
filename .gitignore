@@ -1,0 +1,9 @@
+*.o
+*.so
+*.out
+tests/out/
+__pycache__/
+tests/snippets/test-*
+!tests/snippets/test-*.c
+!tests/snippets/test-utils.h
+demo/demo
