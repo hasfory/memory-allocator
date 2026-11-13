@@ -13,17 +13,12 @@
 #define META_SIZE	ALIGN(sizeof(struct block_meta))
 #define MMAP_THRESHOLD	(128 * 1024)
 #define HEAP_PREALLOC	(128 * 1024)
-/* Найбільший запит, для якого ALIGN(size) + META_SIZE не переповнює size_t. */
+
 #define MAX_REQUEST	(SIZE_MAX - META_SIZE - ALIGNMENT)
 
 #define PAYLOAD(block)	((void *)((char *)(block) + META_SIZE))
 #define META(ptr)	((struct block_meta *)((char *)(ptr) - META_SIZE))
 
-/*
- * Двозв'язний список блоків купи в порядку адрес. Блоки, виділені через
- * mmap(), до списку не входять: вони не суміжні з купою, а звільняються
- * цілком через munmap(), тому зв'язувати їх немає потреби.
- */
 static struct block_meta *heap_head;
 static struct block_meta *heap_tail;
 static int heap_preallocated;
@@ -49,7 +44,6 @@ static void heap_append(struct block_meta *block)
 	heap_tail = block;
 }
 
-/* Перший запит до купи резервує одразу 128 КіБ, щоб зменшити кількість brk(). */
 static void heap_preallocate(void)
 {
 	struct block_meta *block = heap_grow(HEAP_PREALLOC);
@@ -60,11 +54,6 @@ static void heap_preallocate(void)
 	heap_preallocated = 1;
 }
 
-/*
- * Відрізає від блока рівно size байтів корисного навантаження, а залишок
- * оформлює окремим вільним блоком. Розміри кратні 8, тому «хоча б 1 байт»
- * на практиці означає хоча б ALIGNMENT байтів.
- */
 static void block_split(struct block_meta *block, size_t size)
 {
 	struct block_meta *rest;
@@ -87,7 +76,6 @@ static void block_split(struct block_meta *block, size_t size)
 	block->size = size;
 }
 
-/* Приєднує до блока наступний за ним блок, поглинаючи і його заголовок. */
 static void block_absorb_next(struct block_meta *block)
 {
 	struct block_meta *next = block->next;
@@ -113,7 +101,6 @@ static void heap_coalesce(void)
 	}
 }
 
-/* Best fit: найменший вільний блок, у який вміщується запит. */
 static struct block_meta *heap_find_best(size_t size)
 {
 	struct block_meta *best = NULL;
@@ -146,7 +133,6 @@ static struct block_meta *heap_alloc(size_t size)
 		return block;
 	}
 
-	/* Вільний останній блок розширюємо лише на відсутню частину. */
 	if (heap_tail && heap_tail->status == STATUS_FREE) {
 		block = heap_tail;
 		heap_grow(size - block->size);
@@ -179,7 +165,6 @@ static struct block_meta *map_alloc(size_t size)
 	return block;
 }
 
-/* Поріг враховує і заголовок: malloc порівнює зі 128 КіБ, calloc — зі сторінкою. */
 static struct block_meta *block_alloc(size_t size, size_t threshold)
 {
 	size_t aligned = ALIGN(size);
@@ -198,10 +183,6 @@ void *os_malloc(size_t size)
 	return PAYLOAD(block_alloc(size, MMAP_THRESHOLD));
 }
 
-/*
- * Вільні блоки не об'єднуємо тут: це робиться перед пошуком у heap_alloc()
- * і поблоково в os_realloc(), як вимагає завдання.
- */
 void os_free(void *ptr)
 {
 	struct block_meta *block;
@@ -238,7 +219,6 @@ void *os_calloc(size_t nmemb, size_t size)
 	return PAYLOAD(block);
 }
 
-/* Намагається розширити блок купи на місці; повертає 1, якщо вдалося. */
 static int heap_expand(struct block_meta *block, size_t size)
 {
 	if (block == heap_tail) {
@@ -247,7 +227,6 @@ static int heap_expand(struct block_meta *block, size_t size)
 		return 1;
 	}
 
-	/* Об'єднані блоки лишаються об'єднаними, навіть якщо місця не вистачило. */
 	while (block->next && block->next->status == STATUS_FREE) {
 		block_absorb_next(block);
 
@@ -260,7 +239,6 @@ static int heap_expand(struct block_meta *block, size_t size)
 	return 0;
 }
 
-/* Виділяє новий блок, копіює дані й звільняє старий. */
 static void *block_move(struct block_meta *block, size_t size)
 {
 	struct block_meta *moved = block_alloc(size, MMAP_THRESHOLD);
